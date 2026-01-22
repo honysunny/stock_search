@@ -1,254 +1,206 @@
 import streamlit as st
+import FinanceDataReader as fdr
 import pandas as pd
-import re
+import os
+from datetime import datetime
 
 # 1. 페이지 설정
-st.set_page_config(page_title="완전체 영단어장", page_icon="🎓", layout="wide")
-st.title("🎓 AI 영단어장 ")
+st.set_page_config(page_title="주식 검색기", layout="wide")
+st.title("⚡ 슈퍼 주식 검색기")
 
-# 2. Gemini 설정
-try:
-    if "gemini" in st.secrets and "api_key" in st.secrets["gemini"]:
-        genai.configure(api_key=st.secrets["gemini"]["api_key"])
-        model = genai.GenerativeModel('gemini-2.5-flash-lite')
-    else:
-        st.error("🚨 Secrets에 API 키가 없습니다.")
-        model = None
-except Exception as e:
-    st.error(f"Gemini 설정 오류: {e}")
+# --- 파일 기반 기록 관리 ---
+HISTORY_FILE = 'search_history.csv'
 
-try:
-    existing_data = conn.read(worksheet="Sheet1", usecols=[0, 1, 2], ttl=0)
-    existing_data = existing_data.dropna(how="all")
-    if not existing_data.empty:
-        existing_words = existing_data["단어"].astype(str).str.strip().tolist()
-    else:
-        existing_words = []
-except:
-    existing_data = pd.DataFrame(columns=["단어", "뜻", "예문"])
-    existing_words = []
+def load_history():
+    if os.path.exists(HISTORY_FILE):
+        try:
+            df = pd.read_csv(HISTORY_FILE)
+            return df['log'].tolist()
+        except:
+            return []
+    return []
 
-# 탭 구성
-tab1, tab2 = st.tabs(["📚 단어장 관리", "🧰 영어 공부 도구함"])
+def save_history(history_list):
+    df = pd.DataFrame({'log': history_list})
+    df.to_csv(HISTORY_FILE, index=False)
 
-# ==========================================
-# 탭 1: 단어장
-# ==========================================
-with tab1:
-    with st.expander("🔍 단어/숙어 분석 및 추가", expanded=True):
-        with st.form("search_form", clear_on_submit=True):
-            col_input, col_btn = st.columns([4, 1])
-            with col_input:
-                word_input = st.text_input("단어 또는 숙어 입력", placeholder="예: address")
-            with col_btn:
-                search_submitted = st.form_submit_button("🔍 분석")
+# --- 초기화 ---
+if 'search_history' not in st.session_state:
+    st.session_state['search_history'] = load_history()
 
-            if search_submitted and word_input:
-                input_word = word_input.strip()
-                
-                if not model:
-                    st.error("AI 모델 연결 실패")
-                else:
-                    with st.spinner(f"AI가 '{input_word}'를 분석 중..."):
-                        try:
-                            prompt = f"""
-                            Role: Comprehensive English-Korean Dictionary
-                            Input: '{input_word}'
-                            
-                            Task:
-                            1. Identify the correct word/phrase (fix typos).
-                            2. Select 3 distinct meanings.
-                            3. **CRITICAL:** If the word has multiple Parts of Speech (e.g., Noun AND Verb), YOU MUST INCLUDE BOTH TYPES.
-                            4. Prefix the Korean meaning with the Part of Speech tag: [명사], [동사] etc.
-                            
-                            STRICT Output Format:
-                            CORRECT_WORD: <Corrected Word>
-                            [POS] Korean Meaning @@@ English Example Sentence
-                            """
-                            response = model.generate_content(prompt)
-                            st.session_state['analyzed_result'] = response.text
-                            st.session_state['analyzed_word'] = input_word 
-                        except Exception as e:
-                            st.error(f"오류 발생: {e}")
+if 'search_keyword' not in st.session_state:
+    st.session_state['search_keyword'] = ""
 
-    # 분석 결과 확인
-    if 'analyzed_result' in st.session_state and 'analyzed_word' in st.session_state:
-        raw_text = st.session_state['analyzed_result']
-        
-        meanings_list = []
-        examples_list = []
-        final_word = st.session_state.get('analyzed_word', 'Unknown')
-        
-        lines = raw_text.strip().split('\n')
-        valid_data_lines = []
-        
-        for line in lines:
-            line = line.strip()
-            if not line: continue
-            
-            if line.startswith("CORRECT_WORD:"):
-                try:
-                    final_word = line.split(":", 1)[1].strip()
-                    st.session_state['analyzed_word'] = final_word
-                except:
-                    pass
-            elif "@@@" in line:
-                valid_data_lines.append(line)
+# -----------------------------------------------------------
+# 데이터 가져오기
+# -----------------------------------------------------------
+@st.cache_data(ttl=3600) 
+def get_safe_data():
+    try:
+        df = fdr.StockListing('KRX')
+        return df
+    except Exception as e:
+        st.error(f"데이터 가져오기 실패: {e}")
+        return pd.DataFrame()
 
-        for i, line in enumerate(valid_data_lines):
-            parts = line.split("@@@", 1)
-            raw_meaning = re.sub(r'^[\d\.\-\)\s]+', '', parts[0].strip())
-            raw_example = re.sub(r'^[\d\.\-\)\s]+', '', parts[1].strip())
-            
-            meanings_list.append(f"{i+1}. {raw_meaning}")
-            examples_list.append(f"{i+1}. {raw_example}")
-        
-        default_meaning = '\n'.join(meanings_list)
-        default_example = '\n'.join(examples_list)
+with st.spinner('실시간 시장 데이터 로딩 중...'):
+    df = get_safe_data()
 
-        if final_word in existing_words:
-            st.warning(f"⚠️ '{final_word}'는 이미 단어장에 있습니다!")
-        else:
-            st.info(f"🧐 **{final_word}** (으)로 검색된 결과입니다.")
-        
-        with st.container():
-            col1, col2 = st.columns(2)
-            with col1:
-                final_meaning = st.text_area("🇰🇷 뜻 (품사 포함)", value=default_meaning, height=150)
-            with col2:
-                final_example = st.text_area("🇺🇸 예문", value=default_example, height=150)
-
-            if st.button("💾 단어장에 추가하기", type="primary", use_container_width=True):
-                if not final_meaning or not final_example:
-                    st.warning("내용이 비어있습니다.")
-                elif final_word in existing_words:
-                    st.error("이미 저장된 단어입니다.")
-                else:
-                    try:
-                        current_df = conn.read(worksheet="Sheet1", usecols=[0, 1, 2], ttl=0)
-                        new_entry = pd.DataFrame([{
-                            "단어": final_word,
-                            "뜻": final_meaning,
-                            "예문": final_example
-                        }])
-                        updated_data = pd.concat([current_df, new_entry], ignore_index=True)
-                        conn.update(worksheet="Sheet1", data=updated_data)
-                        
-                        st.toast(f"'{final_word}' 저장 성공! 🎉")
-                        if 'analyzed_word' in st.session_state: del st.session_state['analyzed_word']
-                        if 'analyzed_result' in st.session_state: del st.session_state['analyzed_result']
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"저장 실패: {e}")
-
-    # 목록 및 백업
-    st.divider()
+# 2. 데이터 청소
+if not df.empty:
+    target_cols = ['Close', 'Marcap', 'Stocks']
+    for col in target_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
     
-    col_header, col_buttons = st.columns([2, 1])
-    
-    with col_header:
-        st.subheader(f"📝 저장된 단어장 ({len(existing_data)}개)")
-        filter_keyword = st.text_input("📂 내 단어장에서 찾기", placeholder="단어 철자나 뜻으로 검색해보세요...")
+    if 'Dept' not in df.columns:
+        df['Dept'] = '기타'
 
-    with col_buttons:
-        st.write("")
-        st.write("")
-        b_col1, b_col2 = st.columns(2)
-        with b_col1:
-            if not existing_data.empty:
-                csv = existing_data.to_csv(index=False).encode('utf-8-sig')
-                st.download_button(
-                    label="💾 엑셀 백업",
-                    data=csv,
-                    file_name='my_voca_backup.csv',
-                    mime='text/csv',
-                    type='secondary',
-                    use_container_width=True
-                )
-        with b_col2:
+    # 3. 사이드바 검색 옵션
+    st.sidebar.header("🔍 검색 옵션")
+
+    # --- [검색 기록 표시] ---
+    if st.session_state['search_history']:
+        st.sidebar.markdown("### 🕒 최근 검색")
+        
+        for i, record in enumerate(st.session_state['search_history'][:10]): 
             try:
-                sheet_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+                keyword = record.split('] ')[1] 
             except:
-                sheet_url = "https://docs.google.com/spreadsheets"
-            st.link_button("📃 시트 열기", sheet_url, use_container_width=True)
+                keyword = record
 
-    if not existing_data.empty:
-        if filter_keyword:
-            display_data = existing_data[
-                existing_data['단어'].str.contains(filter_keyword, case=False, na=False) | 
-                existing_data['뜻'].str.contains(filter_keyword, case=False, na=False)
-            ]
-        else:
-            display_data = existing_data
+            col_search, col_del = st.sidebar.columns([0.7, 0.3])
+            
+            with col_search:
+                if st.button(keyword, key=f"hist_{i}", use_container_width=True):
+                    st.session_state['search_keyword'] = keyword
+                    st.rerun()
+            
+            with col_del:
+                if st.button("🗑️", key=f"del_{i}", help="기록 삭제", use_container_width=True):
+                    st.session_state['search_history'].pop(i) 
+                    save_history(st.session_state['search_history'])
+                    st.rerun()
+        
+        if st.sidebar.button("🗑️ 기록 전체 비우기", use_container_width=True):
+            st.session_state['search_history'] = []
+            save_history([]) 
+            st.rerun()
+        st.sidebar.markdown("---")
 
-        if display_data.empty:
-            st.info("검색 결과가 없습니다.")
-        else:
-            for i in sorted(display_data.index, reverse=True):
-                row = display_data.loc[i]
-                with st.expander(f"📖 {row['단어']}"):
-                    
-                    # ==========================================================
-                    # 🔥 [여기가 바뀐 부분] 복사하기 반 / 사전 찾기 반
-                    # ==========================================================
-                    col_copy, col_dict = st.columns([1, 1])
-                    
-                    with col_copy:
-                        st.caption("복사하기")
-                        st.code(row['단어'], language="text")
-                        
-                    with col_dict:
-                        st.caption("발음 듣기 (네이버 사전)")
-                        # 네이버 사전 주소 뒤에 단어를 붙여서 바로 이동하게 만듦
-                        dict_url = f"https://en.dict.naver.com/#/search?query={row['단어']}"
-                        st.link_button(f"🔊 {row['단어']} 발음 듣기", dict_url, use_container_width=True)
-
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        new_meaning = st.text_area("뜻", row['뜻'], key=f"m_{i}", height=100)
-                    with c2:
-                        new_example = st.text_area("예문", row['예문'], key=f"e_{i}", height=100)
-                    
-                    col_save, col_del = st.columns([1, 1])
-                    with col_save:
-                        if st.button("💾 수정", key=f"save_{i}"):
-                            existing_data.at[i, "뜻"] = new_meaning
-                            existing_data.at[i, "예문"] = new_example
-                            conn.update(worksheet="Sheet1", data=existing_data)
-                            st.toast("수정 완료!")
-                            st.rerun()
-                    with col_del:
-                        if st.button("🗑️ 삭제", key=f"del_{i}"):
-                            updated_data = existing_data.drop(index=i)
-                            conn.update(worksheet="Sheet1", data=updated_data)
-                            st.toast("삭제 완료!")
-                            st.rerun()
-    else:
-        st.info("단어를 검색해서 추가해보세요!")
-
-# ==========================================
-# 탭 2: 영어 공부 도구함
-# ==========================================
-with tab2:
-    st.header("🧰 유용한 영어 도구 모음")
-    st.write("단어장과 함께 쓰면 좋은 사이트들을 모았습니다. 버튼만 누르세요!")
+    # --- 입력창 ---
+    st.sidebar.subheader("1. 종목명 검색")
     
-    st.divider()
-
-    col_t1, col_t2 = st.columns(2)
-
-    with col_t1:
-        st.subheader("🤖 AI & 번역")
-        st.link_button("🚀 Google Gemini (AI 비서)", "https://gemini.google.com", type="primary", use_container_width=True)
-        st.link_button("🧠 DeepL (자연스러운 번역)", "https://www.deepl.com/translator", use_container_width=True)
-
-    with col_t2:
-        st.subheader("📚 사전 & 학습")
-        st.link_button("🦜 Papago (네이버 번역)", "https://papago.naver.com", use_container_width=True)
-        st.link_button("📘 Naver 영어사전", "https://en.dict.naver.com", use_container_width=True)
+    search_text = st.sidebar.text_input(
+        "종목명 (예: samsung)", 
+        key="search_keyword",
+        placeholder="입력 후 Enter"
+    )
     
-    st.info("💡 Tip: 'DeepL'은 뉘앙스를 살린 번역에, 'Papago'는 한국어 존댓말/반말 구분에 강합니다!")
+    st.sidebar.markdown("---")
+    
+    st.sidebar.subheader("2. 시장 & 소속부")
+    market_list = ['전체'] + sorted(df['Market'].unique().tolist())
+    market_option = st.sidebar.selectbox("시장", market_list)
+    
+    dept_list = ['전체'] + sorted(df['Dept'].fillna('기타').unique().tolist())
+    dept_option = st.sidebar.selectbox("소속부", dept_list)
+    st.sidebar.markdown("---")
 
+    st.sidebar.subheader("3. 시가총액 (단위: 억 원)")
+    c1, c2 = st.sidebar.columns(2)
+    
+    # 🔥 [수정] 기본값(value)을 1000(1000억)으로 설정
+    min_cap_input = c1.number_input("최소 (억)", value=1000, step=100)
+    # 최대는 넉넉하게 500조(삼성전자 등 포함)
+    max_cap_input = c2.number_input("최대 (억)", value=5000000, step=100)
 
+    # 4. 필터링 로직
+    # 입력값이 있거나, 필터가 기본값(전체)이 아니거나, 시총 최소값이 기본(1000)과 다를 때 실행
+    if search_text or market_option != '전체' or dept_option != '전체' or min_cap_input != 1000:
+        
+        # --- 기록 저장 ---
+        if search_text:
+            timestamp = datetime.now().strftime("%H:%M")
+            new_log = f"[{timestamp}] {search_text}"
+            
+            history = st.session_state['search_history']
+            history = [h for h in history if h.split('] ')[1] != search_text]
+            history.insert(0, new_log)
+            st.session_state['search_history'] = history
+            save_history(history)
 
+        result = df.copy()
+        
+        if search_text:
+            result = result[result['Name'].str.contains(search_text, case=False)]
+        if market_option != '전체':
+            result = result[result['Market'] == market_option]
+        if dept_option != '전체':
+            result = result[result['Dept'] == dept_option]
+            
+        result = result[
+            (result['Marcap'] / 100000000 >= min_cap_input) &
+            (result['Marcap'] / 100000000 <= max_cap_input)
+        ]
+        
+        result = result.sort_values(by='Marcap', ascending=False)
+        
+        # --- 링크 ---
+        result['네이버_URL'] = "https://finance.naver.com/item/main.naver?code=" + result['Code']
+        result['FnGuide_URL'] = "http://comp.fnguide.com/SVO2/ASP/SVD_Main.asp?pGB=1&gicode=A" + result['Code']
+        result['DART_URL'] = "https://finance.naver.com/item/dart.naver?code=" + result['Code']
+        result['Report_URL'] = "https://finance.naver.com/research/company_list.naver?searchType=itemCode&itemCode=" + result['Code']
+        
+        result['Marcap_억'] = result['Marcap'] / 100000000
+        
+        st.success(f"검색 결과: {len(result)}개")
+        
+        final_cols = ['Code', 'Name', 'Market', 'Close', 'Marcap_억', '네이버_URL', 'FnGuide_URL', 'Report_URL']
+        
+        st.dataframe(
+            result[final_cols],
+            column_config={
+                "Close": st.column_config.NumberColumn("현재가", format="%d원"),
+                "Marcap_억": st.column_config.NumberColumn("시가총액", format="%d억"),
+                "네이버_URL": st.column_config.LinkColumn("시세", display_text="네이버 🟢"),
+                "FnGuide_URL": st.column_config.LinkColumn("재무", display_text="FnGuide 📘"),
+                "Report_URL": st.column_config.LinkColumn("리포트", display_text="증권사 📄") 
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+        
+        if len(result) == 0:
+            st.warning("조건에 맞는 종목이 없습니다.")
+            
+        elif len(result) > 0:
+            st.markdown("---")
+            st.subheader("🚀 종목 입체 분석")
+            st.caption("네이버/FnGuide에 없는, 다른 시각의 데이터 소스를 확인하세요.")
+            
+            target_stock = st.selectbox("분석할 종목을 선택하세요", result['Name'].tolist())
+            
+            if target_stock:
+                s_code = result[result['Name'] == target_stock]['Code'].values[0]
+                
+                c1, c2, c3, c4 = st.columns(4)
+                
+                # 1. 트레이딩뷰
+                tv_url = f"https://kr.tradingview.com/chart/?symbol=KRX:{s_code}"
+                c1.link_button("📈 트레이딩뷰 차트", tv_url, use_container_width=True)
+                
+                # 2. 구글 트렌드
+                gt_url = f"https://trends.google.co.kr/trends/explore?date=today%2012-m&geo=KR&q={target_stock}"
+                c2.link_button("📊 구글 관심도 추이", gt_url, use_container_width=True)
+                
+                # 3. 삼프로TV
+                sp_url = f"https://www.youtube.com/results?search_query=삼프로TV+{target_stock}"
+                c3.link_button("📺 삼프로TV 해설", sp_url, use_container_width=True)
+                
+                # 4. 구글 뉴스
+                gn_url = f"https://www.google.com/search?q={target_stock}+주가전망&tbm=nws"
+                c4.link_button("📰 구글 뉴스 심층", gn_url, use_container_width=True)
 
+else:
+    st.warning("데이터를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.")

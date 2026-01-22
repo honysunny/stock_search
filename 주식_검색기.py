@@ -1,5 +1,4 @@
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import google.generativeai as genai
 import re
@@ -18,9 +17,6 @@ try:
         model = None
 except Exception as e:
     st.error(f"Gemini 설정 오류: {e}")
-
-# 3. 구글 시트 연결
-conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
     existing_data = conn.read(worksheet="Sheet1", usecols=[0, 1, 2], ttl=0)
@@ -253,5 +249,6 @@ with tab2:
         st.link_button("📘 Naver 영어사전", "https://en.dict.naver.com", use_container_width=True)
     
     st.info("💡 Tip: 'DeepL'은 뉘앙스를 살린 번역에, 'Papago'는 한국어 존댓말/반말 구분에 강합니다!")
+
 
 

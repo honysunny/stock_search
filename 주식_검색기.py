@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import google.generativeai as genai
 import re
 
 # 1. 페이지 설정
@@ -249,6 +248,7 @@ with tab2:
         st.link_button("📘 Naver 영어사전", "https://en.dict.naver.com", use_container_width=True)
     
     st.info("💡 Tip: 'DeepL'은 뉘앙스를 살린 번역에, 'Papago'는 한국어 존댓말/반말 구분에 강합니다!")
+
 
 
 

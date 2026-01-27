@@ -8,7 +8,7 @@ from datetime import datetime
 st.set_page_config(page_title="주식 검색기", layout="wide")
 st.title("⚡ 슈퍼 주식 검색기")
 
-# --- 파일 기반 기록 관리 ---
+# --- 파일 기반 기록 관리 함수 ---
 HISTORY_FILE = 'search_history.csv'
 
 def load_history():
@@ -32,30 +32,30 @@ if 'search_keyword' not in st.session_state:
     st.session_state['search_keyword'] = ""
 
 # -----------------------------------------------------------
-# 데이터 가져오기
+# 데이터 가져오기 (파일 읽기 방식)
 # -----------------------------------------------------------
 @st.cache_data(ttl=3600) 
 def get_safe_data():
     try:
-        # 이제 인터넷(KRX)이 아니라 내가 올린 파일을 읽습니다.
+        # 깃허브에 올린 'krx_list.csv' 파일을 읽습니다.
         df = pd.read_csv('krx_list.csv')
-        # 종목코드가 숫자면 0이 사라질 수 있으니 문자열로 고정 (예: 005930)
-        df['Code'] = df['Code'].astype(str).str.zfill(6)
+        
+        # 종목코드 0이 사라지지 않게 6자리 문자로 변환 (예: 5930 -> 005930)
+        if 'Code' in df.columns:
+            df['Code'] = df['Code'].astype(str).str.zfill(6)
+            
         return df
     except Exception as e:
-        st.error(f"파일을 찾을 수 없습니다: {e}")
+        # 파일이 없거나 에러가 나면 빈 표를 반환
         return pd.DataFrame()
 
+# 데이터를 불러옵니다
 with st.spinner('데이터 파일 로딩 중...'):
     df = get_safe_data()
 
-# ... (아래쪽 코드: 원래 있던 코드) ...
-# 2. 데이터 청소
+# 2. 데이터가 정상적으로 있으면 화면 그리기 시작
 if not df.empty:
-    # ...
-    
-# 2. 데이터 청소
-if not df.empty:
+    # 숫자 변환 (문자로 된 숫자를 진짜 숫자로)
     target_cols = ['Close', 'Marcap', 'Stocks']
     for col in target_cols:
         if col in df.columns:
@@ -77,6 +77,7 @@ if not df.empty:
             except:
                 keyword = record
 
+            # 레이아웃 비율 (0.7 : 0.3)
             col_search, col_del = st.sidebar.columns([0.7, 0.3])
             
             with col_search:
@@ -118,13 +119,11 @@ if not df.empty:
     st.sidebar.subheader("3. 시가총액 (단위: 억 원)")
     c1, c2 = st.sidebar.columns(2)
     
-    # 🔥 [수정] 기본값(value)을 1000(1000억)으로 설정
+    # 기본값 1000억
     min_cap_input = c1.number_input("최소 (억)", value=1000, step=100)
-    # 최대는 넉넉하게 500조(삼성전자 등 포함)
     max_cap_input = c2.number_input("최대 (억)", value=5000000, step=100)
 
     # 4. 필터링 로직
-    # 입력값이 있거나, 필터가 기본값(전체)이 아니거나, 시총 최소값이 기본(1000)과 다를 때 실행
     if search_text or market_option != '전체' or dept_option != '전체' or min_cap_input != 1000:
         
         # --- 기록 저장 ---
@@ -133,8 +132,11 @@ if not df.empty:
             new_log = f"[{timestamp}] {search_text}"
             
             history = st.session_state['search_history']
+            # 중복 제거
             history = [h for h in history if h.split('] ')[1] != search_text]
+            # 추가
             history.insert(0, new_log)
+            # 저장
             st.session_state['search_history'] = history
             save_history(history)
 
@@ -211,6 +213,4 @@ if not df.empty:
                 c4.link_button("📰 구글 뉴스 심층", gn_url, use_container_width=True)
 
 else:
-    st.warning("데이터를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.")
-
-
+    st.warning("데이터를 불러오지 못했습니다. 'krx_list.csv' 파일이 깃허브에 있는지 확인해주세요!")

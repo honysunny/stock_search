@@ -37,14 +37,14 @@ if 'search_keyword' not in st.session_state:
 @st.cache_data(ttl=3600) 
 def get_safe_data():
     try:
-        df = fdr.StockListing('KRX')
+        # 이제 인터넷(KRX)이 아니라 내가 올린 파일을 읽습니다.
+        df = pd.read_csv('krx_list.csv')
+        # 종목코드가 숫자면 0이 사라질 수 있으니 문자열로 고정 (예: 005930)
+        df['Code'] = df['Code'].astype(str).str.zfill(6)
         return df
     except Exception as e:
-        st.error(f"데이터 가져오기 실패: {e}")
+        st.error(f"파일을 찾을 수 없습니다: {e}")
         return pd.DataFrame()
-
-with st.spinner('실시간 시장 데이터 로딩 중...'):
-    df = get_safe_data()
 
 # 2. 데이터 청소
 if not df.empty:
@@ -204,3 +204,4 @@ if not df.empty:
 
 else:
     st.warning("데이터를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.")
+

@@ -34,19 +34,32 @@ if 'search_keyword' not in st.session_state:
 # -----------------------------------------------------------
 # 데이터 가져오기 (파일 읽기 방식)
 # -----------------------------------------------------------
+# -----------------------------------------------------------
+# 데이터 가져오기 (디버깅 모드: 파일 목록을 눈으로 확인)
+# -----------------------------------------------------------
 @st.cache_data(ttl=3600) 
 def get_safe_data():
     try:
-        # 깃허브에 올린 'krx_list.csv' 파일을 읽습니다.
+        # 1. 시도: 그냥 읽어본다
         df = pd.read_csv('krx_list.csv')
-        
-        # 종목코드 0이 사라지지 않게 6자리 문자로 변환 (예: 5930 -> 005930)
         if 'Code' in df.columns:
             df['Code'] = df['Code'].astype(str).str.zfill(6)
-            
         return df
+
     except Exception as e:
-        # 파일이 없거나 에러가 나면 빈 표를 반환
+        # 2. 실패 시: 현재 폴더 상황을 화면에 다 까발린다
+        import os
+        
+        st.error(f"❌ 읽기 실패! 에러 메시지: {e}")
+        
+        # 현재 위치는 어디?
+        cwd = os.getcwd()
+        st.warning(f"📍 현재 서버 위치: {cwd}")
+        
+        # 내 주변에 있는 파일들은?
+        files = os.listdir(cwd)
+        st.info(f"📂 내 주변 파일 목록: {files}")
+        
         return pd.DataFrame()
 
 # 데이터를 불러옵니다
@@ -214,3 +227,4 @@ if not df.empty:
 
 else:
     st.warning("데이터를 불러오지 못했습니다. 'krx_list.csv' 파일이 깃허브에 있는지 확인해주세요!")
+

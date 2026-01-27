@@ -46,6 +46,14 @@ def get_safe_data():
         st.error(f"파일을 찾을 수 없습니다: {e}")
         return pd.DataFrame()
 
+with st.spinner('데이터 파일 로딩 중...'):
+    df = get_safe_data()
+
+# ... (아래쪽 코드: 원래 있던 코드) ...
+# 2. 데이터 청소
+if not df.empty:
+    # ...
+    
 # 2. 데이터 청소
 if not df.empty:
     target_cols = ['Close', 'Marcap', 'Stocks']
@@ -204,4 +212,5 @@ if not df.empty:
 
 else:
     st.warning("데이터를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.")
+
 
